@@ -101,7 +101,7 @@ func newState(appKey []byte, local EdKeyPair) (*State, error) {
 	copy(s.localExchange.Secret[:], secKey[:])
 	s.local = local
 
-	if l := len(s.local.Public); l != ed25519.PrivateKeySize {
+	if l := len(s.local.Public); l != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("invalid key size for ephemeral/public of %db", l)
 	}
 
@@ -153,24 +153,15 @@ func (s *State) verifyChallange(ch []byte) bool {
 	return ok
 }
 
+// createClientAuth returns a buffer containing a clientAuth message
 func (s *State) createClientAuth() []byte {
 	var curveRemotePubKey [32]byte
-
 	if !extra25519.PublicKeyToCurve25519(&curveRemotePubKey, s.remotePublic) {
-		log.Fatalf("Couldn't convert remote to curve key when creating client auth")
+		panic("secrethandshake: could not convert remote to curve key")
 	}
-
-	var helloBob []byte
-
-	helloBob, err := curve25519.X25519(s.localExchange.Secret[:], curveRemotePubKey[:])
-	if err != nil {
-		log.Fatalf("Couldn't verify challange (Error: %s)", err)
-	}
-
-	if len(helloBob) != 32 {
-		log.Fatalf("Derived key is not 32b. Unexpected error!!")
-	}
-	copy(s.helloBob[:], helloBob)
+	var aBob [32]byte
+	curve25519.ScalarMult(&aBob, &s.localExchange.Secret, &curveRemotePubKey)
+	copy(s.helloBob[:], aBob[:])
 
 	secHasher := sha256.New()
 	secHasher.Write(s.appKey[:])
@@ -191,45 +182,47 @@ func (s *State) createClientAuth() []byte {
 	s.hello = helloBuf.Bytes()
 
 	out := make([]byte, 0, len(s.hello)-box.Overhead)
-	var nonce [24]byte
-	out = box.SealAfterPrecomputation(out, s.hello, &nonce, &s.secret2)
-
+	var n [24]byte
+	out = box.SealAfterPrecomputation(out, s.hello, &n, &s.secret2)
 	return out
 }
 
 var nullHello [ed25519.SignatureSize + ed25519.PublicKeySize]byte
 
+// verifyClientAuth returns whether a buffer contains a valid clientAuth message
 func (s *State) verifyClientAuth(data []byte) bool {
-	var cvSec [32]byte
+	var cvSec, helloBob [32]byte
 	extra25519.PrivateKeyToCurve25519(&cvSec, s.local.Secret)
+	curve25519.ScalarMult(&helloBob, &cvSec, &s.remoteExchange.Public)
+	copy(s.helloBob[:], helloBob[:])
 
-	helloBob, err := curve25519.X25519(cvSec[:], s.remoteExchange.Public[:])
-	if err != nil {
-		log.Fatalf("Couldn't verify challange (Error: %s)", err)
-	}
-	if len(helloBob) != 32 {
-		log.Fatalf("Derived key is not 32b. Unexpected error!!")
-	}
-	copy(s.helloBob[:], helloBob)
-
-	sechasher := sha256.New()
-	sechasher.Write(s.appKey[:])
-	sechasher.Write(s.secret[:])
-	sechasher.Write(s.helloBob[:])
-	copy(s.secret2[:], sechasher.Sum(nil))
+	secHasher := sha256.New()
+	secHasher.Write(s.appKey[:])
+	secHasher.Write(s.secret[:])
+	secHasher.Write(s.helloBob[:])
+	copy(s.secret2[:], secHasher.Sum(nil))
 
 	s.hello = make([]byte, 0, len(data)-16)
 
-	var nonce [24]byte // always zero???
+	var nonce [24]byte // always 0?
 	var openOk bool
 	s.hello, openOk = box.OpenAfterPrecomputation(s.hello, data, &nonce, &s.secret2)
 
 	var sig = make([]byte, ed25519.SignatureSize)
 	var public = make([]byte, ed25519.PublicKeySize)
+	/* TODO: is this const time!?!
 
+	   this is definetly not:
+	   if !openOK {
+	   	s.hello = nullHello
+	   }
+	   copy(sig, ...)
+	   copy(pub, ...)
+	*/
 	if openOk {
 		copy(sig, s.hello[:ed25519.SignatureSize])
 		copy(public[:], s.hello[ed25519.SignatureSize:])
+
 	} else {
 		copy(sig, nullHello[:ed25519.SignatureSize])
 		copy(public[:], nullHello[ed25519.SignatureSize:])
@@ -240,6 +233,7 @@ func (s *State) verifyClientAuth(data []byte) bool {
 	var sigMsg bytes.Buffer
 	sigMsg.Write(s.appKey[:])
 	sigMsg.Write(s.local.Public[:])
+	sigMsg.Write(s.secHash)
 	verifyOk := ed25519.Verify(public, sigMsg.Bytes(), sig)
 
 	copy(s.remotePublic, public)
