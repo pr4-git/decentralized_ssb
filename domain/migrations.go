@@ -1,13 +1,15 @@
-package main
+package domain
 
 import (
 	"database/sql"
 	"log"
 
-	"github.com/mattn/go-sqlite3"
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// MAJOR BEWARE!!!!
+// You NEED crypto extension in same dir where you are running from
+const loadCryptoExt string = `SELECT load_extension('./crypto');`
 const featureFlags string = `PRAGMA foreign_keys = ON;`
 
 // ID is ULID
@@ -39,33 +41,12 @@ CREATE UNIQUE INDEX  IF NOT EXISTS parent_unique ON messages (
 `
 
 func InitDB(dsn string) {
-	sql.Register("sqlite3_with_crypto", &sqlite3.SQLiteDriver{
-		Extensions: []string{
-			"./sqlite_ext/crypto",
-		},
-	})
-
-	db, err := sql.Open("sqlite3_with_crypto", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		log.Fatalln("Unable to open database. Cannot recover from this error.")
 	}
-	defer db.Close()
+	db.Exec(loadCryptoExt, nil)
+	db.Exec(featureFlags, nil)
+	db.Exec(createMsgTable, nil)
 
-	_, err = db.Exec(featureFlags, nil)
-	if err != nil {
-		db.Close()
-		log.Fatalf("Unable to execute. Error %v", err)
-	}
-	log.Println("Enabled feature flags")
-
-	_, err = db.Exec(createMsgTable, nil)
-	if err != nil {
-		db.Close()
-		log.Fatalf("Unable to execute. Error %v", err)
-	}
-	log.Println("Created messages table")
-}
-
-func main() {
-	InitDB("./foo.db")
 }
