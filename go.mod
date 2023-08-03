@@ -12,7 +12,14 @@ require (
 require github.com/mattn/go-sqlite3 v1.14.17
 
 require (
+	github.com/schollz/peerdiscovery v1.7.0 // indirect
+	golang.org/x/net v0.13.0 // indirect
+)
+
+require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/go-chi/chi/v5 v5.0.10
+	github.com/jmoiron/sqlx v1.3.5
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
