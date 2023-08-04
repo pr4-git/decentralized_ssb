@@ -23,7 +23,7 @@ type Reply struct {
 func (rh *Handler) GetPosts(payload int, reply *Reply) error {
 	posts, err := dba.FetchWall(rh.DB)
 	*reply = Reply{Posts: posts}
-	println("server done!")
+	log.Println("Sync complete with remote client")
 	if err != nil {
 		return err
 	}
@@ -37,14 +37,15 @@ func RunServer(db *sqlx.DB, keypair *handshake.EdKeyPair, appkey string) {
 	}
 	listener, err := netwrap.Listen(
 		&net.TCPAddr{
-			IP:   net.IP{127, 0, 0, 1},
-			Port: 8005,
+			IP: net.IP{127, 0, 0, 1},
+			// 0 means non-ephimeral port not in use
+			Port: 0,
 		},
 		server.ListenerWrapper(),
 	)
 	log.Println("You can connect with this server at:")
-	log.Printf("%s@192.168.0.1:8005\n",
-		server.Addr().String())
+	log.Printf("%s\n",
+		listener.Addr())
 	if err != nil {
 		log.Printf("Server down for syncronization. %s", err)
 	}

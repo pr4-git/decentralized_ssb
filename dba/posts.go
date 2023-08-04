@@ -121,7 +121,7 @@ func FetchWall(db *sqlx.DB) ([]Post, error) {
 func FetchFeed(db *sqlx.DB) ([]Post, error) {
 	queryStr := `
 	SELECT *
-	FROM wall
+	FROM feed
 	ORDER BY id DESC
 	`
 

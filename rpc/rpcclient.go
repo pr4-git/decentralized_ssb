@@ -2,30 +2,41 @@ package securerpc
 
 import (
 	"encoding/base64"
-	"itsy/ssb/dba"
 	"itsy/ssb/handshake"
 	"itsy/ssb/secretstream"
 	"log"
 	"net"
 	"net/rpc"
 	"sort"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"go.cryptoscope.co/netwrap"
-	"golang.org/x/crypto/ed25519"
 )
 
-func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serverKey ed25519.PublicKey, appkey string) {
+func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, appkey string) {
+	splitstr := strings.Split(serveraddr, "|@")
+	log.Printf("%v", splitstr)
+	netaddr, serverkeystr := splitstr[0], strings.TrimSuffix(splitstr[1], ".ed25519")
+	log.Printf("%s,%s", netaddr, serveraddr)
+	serverKey, err := base64.StdEncoding.DecodeString(serverkeystr)
+	if err != nil {
+		log.Printf("Cannot syncronize with the server %s", err)
+		return
+	}
+
 	client, err := secretstream.NewClient(*keypair, []byte(appkey))
 	if err != nil {
 		log.Fatalf("couldn't create client (Error: %v)", err)
 	}
 
+	serverAddr, err := net.ResolveTCPAddr("tcp", netaddr)
+	if err != nil {
+		log.Printf("Cannot syncronize with the server %s", err)
+		return
+	}
 	tcpAddr := netwrap.GetAddr(
-		&net.TCPAddr{
-			IP:   net.IP{127, 0, 0, 1},
-			Port: 8005,
-		},
+		serverAddr,
 		"tcp")
 	connWrap := client.ConnWrapper(serverKey)
 
@@ -47,11 +58,6 @@ func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serverKey ed25519.Pub
 	sort.Slice(reply.Posts, func(i, j int) bool {
 		return reply.Posts[i].ID < reply.Posts[j].ID
 	})
-
-	err = dba.NewProfile(serverKey, "").FollowProfile(db)
-	if err != nil {
-		log.Printf("Unable to create a peer. %s", err)
-	}
 
 	for i := 0; i < len(reply.Posts); i++ {
 		err := reply.Posts[i].SyncToFeed(db)

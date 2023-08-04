@@ -32,7 +32,7 @@ parent BLOB,
 author BLOB,
 
 FOREIGN KEY(parent) REFERENCES feed(hash)
-FOREIGN KEY(author) REFERENCES following(pubkey)
+FOREIGN KEY(author) REFERENCES peers(pubkey)
 );
 
 
@@ -66,11 +66,12 @@ CREATE UNIQUE INDEX  IF NOT EXISTS parent_unique ON wall (
 )
 `
 
-const createFollowing string = `
-CREATE TABLE IF NOT EXISTS following
+const createPeersTable string = `
+CREATE TABLE IF NOT EXISTS peers
 (
-pubkey BLOB PRIMARY KEY,
-username TEXT
+	pubkey BLOB PRIMARY KEY,
+	networkaddr TEXT NOT NULL,
+	alias NOT NULL
 )
 `
 
@@ -84,12 +85,11 @@ func InitDB(db *sql.DB) {
 		log.Fatalf("Unable to execute. Error %v", err)
 	}
 
-	_, err = db.Exec(createFollowing, nil)
+	_, err = db.Exec(createPeersTable, nil)
 	if err != nil {
 		db.Close()
-		log.Fatalf("Unable to execute createFollowing. Error %v", err)
+		log.Fatalf("Unable to execute createPeersTable. Error %v", err)
 	}
-
 	_, err = db.Exec(createFeedTable, nil)
 	if err != nil {
 		db.Close()

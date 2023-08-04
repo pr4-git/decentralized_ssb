@@ -1,21 +1,30 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"database/sql"
-	"encoding/base64"
+	"flag"
 	"itsy/ssb/dba"
-	securerpc "itsy/ssb/rpc"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jmoiron/sqlx"
 	"github.com/mattn/go-sqlite3"
 )
 
 const appkey string = "ssbnet"
+
+var httpPort *string
+
+func init() {
+	httpPort = flag.String("port", ":8080", "-port=:8080")
+	flag.Parse()
+}
 
 func main() {
 	// Create or get your identity
@@ -34,12 +43,25 @@ func main() {
 	defer db.Close()
 	dba.InitDB(db.DB)
 
-	//go RunServer(db, keypair)
-	serverKey, err := base64.StdEncoding.DecodeString("1a99MIBEzGXc8gWbRIjRxgHRRdnf+KM7hinz4S0FIjE=")
-	if err != nil {
-		log.Fatalf("Server Key not available. %s", err)
+	app := &Deps{
+		db:      db,
+		appkey:  appkey,
+		keypair: *keypair,
 	}
-	go securerpc.SyncClient(db, keypair, ed25519.PublicKey(serverKey), appkey)
+
+	go app.RunSyncServer()
+
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	r.Mount("/api", func() http.Handler {
+		r := chi.NewRouter()
+		setupRoutes(r, app)
+		return r
+	}())
+
+	http.ListenAndServe(*httpPort, r)
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
