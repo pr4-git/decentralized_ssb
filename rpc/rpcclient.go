@@ -14,7 +14,7 @@ import (
 	"go.cryptoscope.co/netwrap"
 )
 
-func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, appkey string) {
+func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, appkey string) error {
 	splitstr := strings.Split(serveraddr, "|@")
 	log.Printf("%v", splitstr)
 	netaddr, serverkeystr := splitstr[0], strings.TrimSuffix(splitstr[1], ".ed25519")
@@ -22,18 +22,19 @@ func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, ap
 	serverKey, err := base64.StdEncoding.DecodeString(serverkeystr)
 	if err != nil {
 		log.Printf("Cannot syncronize with the server %s", err)
-		return
+		return err
 	}
 
 	client, err := secretstream.NewClient(*keypair, []byte(appkey))
 	if err != nil {
 		log.Fatalf("couldn't create client (Error: %v)", err)
+		return err
 	}
 
 	serverAddr, err := net.ResolveTCPAddr("tcp", netaddr)
 	if err != nil {
 		log.Printf("Cannot syncronize with the server %s", err)
-		return
+		return err
 	}
 	tcpAddr := netwrap.GetAddr(
 		serverAddr,
@@ -43,6 +44,7 @@ func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, ap
 	conn, err := netwrap.Dial(tcpAddr, connWrap)
 	if err != nil {
 		log.Fatalf("couldn't dial server (Error: %v)", err)
+		return err
 	}
 	defer conn.Close()
 	log.Println("Connected!!!")
@@ -53,6 +55,7 @@ func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, ap
 	err = clientRPC.Call("Handler.GetPosts", 0, &reply)
 	if err != nil {
 		log.Printf("Error in syncronization. %s", err)
+		return err
 	}
 
 	sort.Slice(reply.Posts, func(i, j int) bool {
@@ -63,8 +66,9 @@ func SyncClient(db *sqlx.DB, keypair *handshake.EdKeyPair, serveraddr string, ap
 		err := reply.Posts[i].SyncToFeed(db)
 		if err != nil {
 			log.Printf("Possible spoof attempt. %s", err)
-			break
+			return err
 		}
 	}
 	log.Printf("Sync complete with %s", base64.StdEncoding.EncodeToString(serverKey))
+	return nil
 }
