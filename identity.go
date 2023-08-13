@@ -3,9 +3,9 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"itsy/ssb/handshake"
 	"log"
 	"os"
+	"ssb-ng/handshake"
 )
 
 // GetIdentity gives you your ed25519 keypair

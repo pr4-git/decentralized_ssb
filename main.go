@@ -1,71 +1,104 @@
 package main
 
 import (
-	"database/sql"
 	"embed"
-	"itsy/ssb/dba"
 	"log"
-	"os"
+	"ssb-ng/dba"
+	"ssb-ng/gossip"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
-//go:embed all:frontend/dist
+//go:embed frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var icon []byte
+
 func main() {
-
-	logfile, err := os.OpenFile("ssb.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("Error opening logfile. %v", err)
-	}
-	defer logfile.Close()
-
-	log.SetOutput(logfile)
-
-	keypair := GetIdentity()
-
-	// init db
-	sql.Register("sqlite3_with_crypto", &sqlite3.SQLiteDriver{
-		Extensions: []string{
-			"./sqlite_ext/crypto",
-		},
-	})
-	db, err := sqlx.Open("sqlite3_with_crypto", "ssb.sqlite")
+	// ready the dependencies
+	db, err := sqlx.Open("sqlite3", "ssb.dat")
 	if err != nil {
 		log.Fatalf("Unable to open database. %s", err)
 	}
 	defer db.Close()
-	dba.InitDB(db.DB)
+	dba.Migrate(db)
 
-	app := &Deps{
+	deps := AppDeps{
 		db:      db,
-		appkey:  "universal ssb network",
-		keypair: *keypair,
+		keypair: GetIdentity(),
+		appkey:  []byte("ssb-ng"),
 	}
 
-	go app.RunSyncServer()
+	// start the gossip server
+	go gossip.StartSyncServer(deps, deps.appkey)
+
+	// Create an instance of the app structure
+	app := NewApp(deps)
 
 	// Create application with options
 	err = wails.Run(&options.App{
-		Title:  "ssb",
-		Width:  1024,
-		Height: 768,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
+		Title:             "ssb-ng",
+		Width:             1024,
+		Height:            768,
+		MinWidth:          1024,
+		MinHeight:         768,
+		MaxWidth:          1280,
+		MaxHeight:         800,
+		DisableResize:     false,
+		Fullscreen:        false,
+		Frameless:         false,
+		StartHidden:       false,
+		HideWindowOnClose: false,
+		BackgroundColour:  &options.RGBA{R: 255, G: 255, B: 255, A: 255},
+		Assets:            assets,
+		Menu:              nil,
+		Logger:            nil,
+		LogLevel:          logger.DEBUG,
+		OnStartup:         app.startup,
+		OnDomReady:        app.domReady,
+		OnBeforeClose:     app.beforeClose,
+		OnShutdown:        app.shutdown,
+		WindowStartState:  options.Normal,
 		Bind: []interface{}{
 			app,
+		},
+		// Windows platform specific options
+		Windows: &windows.Options{
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			DisableWindowIcon:    false,
+			// DisableFramelessWindowDecorations: false,
+			WebviewUserDataPath: "",
+		},
+		// Mac platform specific options
+		Mac: &mac.Options{
+			TitleBar: &mac.TitleBar{
+				TitlebarAppearsTransparent: true,
+				HideTitle:                  false,
+				HideTitleBar:               false,
+				FullSizeContent:            false,
+				UseToolbar:                 true,
+				HideToolbarSeparator:       true,
+			},
+			Appearance:           mac.NSAppearanceNameDarkAqua,
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
+			About: &mac.AboutInfo{
+				Title:   "ssb-ng",
+				Message: "",
+				Icon:    icon,
+			},
 		},
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		log.Fatal(err)
 	}
 }
